@@ -1,0 +1,6 @@
+"0","dtm <- reduce.dtm(dtm, freq.threshold = 5)"
+"0","ncol(dtm)"
+"1","[1]"
+"1"," 907"
+"1","
+"

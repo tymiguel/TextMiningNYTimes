@@ -1,0 +1,3 @@
+"0","word_freqs <- data.frame(term = names(term_frequency), num = term_frequency)"
+"0","wordcloud(word_freqs$term, word_freqs$num, max.words = 50, "
+"0","          colors =  brewer.pal(3, ""Blues""))"

@@ -1,0 +1,9 @@
+"0","tokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))"
+"0","doc.matrix <- DocumentTermMatrix(VCorpus(VectorSource(docs.sns)), "
+"0","                                 control = list(tokenizer = tokenizer, "
+"0","                                                weighting = weightTf))"
+"2","all scheduled cores encountered errors in user code"
+"2","NAs introduced by coercion"
+"2","Error in simple_triplet_matrix(i = i, j = j, v = as.numeric(v), nrow = length(allTerms),  : 
+  'i, j, v' different lengths
+"

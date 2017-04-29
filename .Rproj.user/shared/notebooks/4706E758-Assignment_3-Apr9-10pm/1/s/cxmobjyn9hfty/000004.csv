@@ -1,0 +1,7 @@
+"0","totalcount_word1 <- data.frame(sentiment_cr1_senti[, c(2:11)])"
+"0","barplot("
+"0","  sort(colSums(totalcount_word1[, 1:8])), "
+"0","  cex.names = 0.6, "
+"0","  las = 1, "
+"0","  main = ""Emotions in Cluster 1"""
+"0",")"

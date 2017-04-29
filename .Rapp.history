@@ -1,0 +1,77 @@
+demo()
+help.start()
+graphics()
+ggplot2?
+?ggplot
+??ggplot
+print("Hello World")
+1:100
+for (i in 1:100) {}
+r.verision()
+version()
+r.version()
+get.nyt.hits = function(query.string="", # single word only (REQUIRED)#
+                        begin.date="",   # yyyymmdd (REQUIRED)#
+                        end.date=""      # yyyymmdd (REQUIRED)#
+) { #
+  str_c(# create query string to send to NYT#
+        "http://api.nytimes.com", #
+        "/svc/search/v2/articlesearch.json",#
+        "?api-key=",    articlesearch.key,#
+        "&q=",          str_replace_all(query.string," ","%20"),#
+        "&begin_date=", begin.date,#
+        "&end_date=",   end.date#
+  ) %>%#
+  getURL() %>%             # retreive data from NYT#
+  fromJSON() %>%           # convert from JSON to a list#
+  { .$response$meta['hits'] }#
+}
+articlesearch.key = "d19f24bdfbd940c69deaf0922e521eef"#
+get.nyt.hits(query.string="drone",     # OPTION#
+             begin.date="20160601",    # OPTION#
+             end.date  ="20170325")
+library(dplyr)
+library(cluster)#
+library(RCurl)#
+library(RJSONIO)#
+library(rlist)#
+library(stringr)#
+library(dplyr)#
+library(magrittr)#
+library(RTextTools)#
+library(ngram)#
+library(ggplot2)#
+library(clValid)
+articlesearch.key = "d19f24bdfbd940c69deaf0922e521eef"#
+get.nyt.hits(query.string="drone",     # OPTION#
+             begin.date="20160601",    # OPTION#
+             end.date  ="20170325")
+articlesearch.key = "d19f24bdfbd940c69deaf0922e521eef"#
+get.nyt.hits(query.string="drone",     # OPTION#
+             begin.date="20160601",    # OPTION#
+             end.date  ="20170326")
+articlesearch.key = "d19f24bdfbd940c69deaf0922e521eef"#
+get.nyt.hits(query.string="drone",     # OPTION#
+             begin.date="20160601",    # OPTION#
+             end.date  ="20170327")
+articlesearch.key = "d19f24bdfbd940c69deaf0922e521eef"#
+get.nyt.hits(query.string="drone",     # OPTION#
+             begin.date="20160601",    # OPTION#
+             end.date  ="20170328")
+1119/10
+floor(1119/10)
+articlesearch.key = "d19f24bdfbd940c69deaf0922e521eef"#
+get.nyt.hits(query.string="drone",     #
+             begin.date="20160601",   #
+             end.date  ="20170325")
+getwd()
+setwd('/Users/tylermiguel/Desktop/Bentley/Data Mining (MA710)/Text Mining NY Times/')
+source(file="20170321_TextMining_functions.R")
+articlesearch.key = "d19f24bdfbd940c69deaf0922e521eef"#
+get.nyt.hits(query.string="drone",     #
+             begin.date="20160601",   #
+             end.date  ="20170325")
+articlesearch.key = "d19f24bdfbd940c69deaf0922e521eef"#
+get.nyt.hits(query.string="drone",     #
+             begin.date="20160601",   #
+             end.date  ="20170325")

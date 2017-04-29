@@ -1,0 +1,918 @@
+---
+title: "MA710 - New York Times Articles"
+author: "Vinay Marwaha, Tyler Miguel, Katelyn Tolbert, and Irene Yang"
+date: "April, 21, 2017"
+output:
+  html_document:
+    toc: yes
+---
+
+## Introduction
+
+The [New York Times](https://www.nytimes.com) (sometimes abbreviated NYT and The Times) is an American daily newspaper, founded and continuously published in New York City since September 18, 1851, by The New York Times Company. The New York Times has won 119 Pulitzer Prizes, more than any other newspaper. The paper's print version in 2013 had the second-largest circulation, behind The Wall Street Journal, and the largest circulation among the metropolitan newspapers in the US. The New York Times is ranked 18th in the world by circulation. 
+
+The Times exposes APIs ([application programming interfaces](http://en.wikipedia.org/wiki/API)) for noncommercial use allowing developer community to programmatically access New York Times data for use in different applications. Using The Times Article Search API, we can search New York Times articles from September 18, 1851 to today, retrieving headlines, abstracts, lead paragraphs, links to associated multimedia, and other article metadata.
+
+In this report, we leverage The Times Article Search API to search and retrieve news articles based on a unique query term to showcase nuances of text mining techniques in conjunction with `R` programming language for data scientists. Specifically, we categorize the retrieved article content into distinct clusters to discover the underlying topics per cluster. For the purpose of this report, we focus our analysis to articles containing the word "drone" and published between June 1, 2016 and March 25, 2017.
+
+## Prepare the dataset
+
+Before extracting the articles from the NYT website, we need to load all the dependencies, such as required `R` packages and supporting functions that we use in our analysis.
+
+**Required R libraries**
+
+Following R libraries are used for the analyses to follow:
+
+* `stringr` for string manipulation
+* `knitr` for creating elegant tables in RMD
+* `ggplot2` for data visualization
+* `plotrix` for drawing pyramid plot
+* `dplyr` for data manipulation and transformation
+* `clValid` for cluster validation tasks
+* `RWeka` for creating n-grams
+* `qdap` for computing word frequencies without creating Document-Term frequency matrix
+* `tm` for removing stop words
+* `RTextTools` for stemming 
+* `wordcloud` for visually representing word cloud
+* `RColorBrewer` for customizing color scheme in the word cloud
+* `syuzhet` to extract sentiments from the Text
+
+
+```{r warning=FALSE, message=FALSE}
+library(stringr) 
+library(knitr)
+library(dplyr)
+library(ggplot2)
+library(plotrix)
+library(clValid)
+library(qdap)
+library(RWeka)
+library(tm)
+library(RTextTools)
+library(wordcloud)
+library(RColorBrewer)
+library(syuzhet)
+```
+
+Additionally, we source an `R` script file containing supporting functions which we use in our text mining exercise. We want to recognize that these functions are available at the courtesy of **Professor Oury**. To utilize these functions, we use `source` function which accepts the name of the `R` script file as an input, and loads `R` functions from the sourced script in the work space in order to be consumed.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+source(file = "20170321_TextMining_functions.R")
+```
+
+To better understand the data in our articles, we adjust the global option `dplyr.width` to include all the columns when printing results.
+
+```{r}
+options(dplyr.width = Inf)
+```
+
+Once the libraries and functions, we need for the analysis, are loaded, we extract the articles from the NYT's website using the [NYT Article Search API](https://developer.nytimes.com/).
+
+Extracting articles from NYT is a two-step process. First, we determine the number of hits for our search term and then we retrieve actual article content. To get the number of search hits, we set `articlesearch.key` with a unique API key (given to us on request by the NYT's developer website) and then call the `get.nyt.hits` function which accepts a query term via `query.string` parameter along with a start and end date between which articles of interest were published. 
+
+Below, we pass the query term "drone" to the `query.string` to search articles (scope of search includes metadata e.g. keywords, headlines, and body of the articles) which were published between June 1, 2016 and March 25, 2017. The function `get.nyt.hits` concatenates default inputs needed to call the Article Search API along with customizable inputs that specify the scope of articles to be searched. The Article Search API is invoked and subsequently JSON response is received using `getURL` function. The JSON response is passed to `fromJSON` function which converts JSON formatted response into a `R list`. Lastly, from this list we extract number of hits, using `$response$meta['hits']` call to determine the number of  articles in the result set for specified query string with the given beginning and end dates.
+
+```{r, eval=FALSE}
+articlesearch.key <- "b12db84090d04b5d89566c61ae829cd1"
+get.nyt.hits(query.string = "drone",     
+             begin.date = "20160601",   
+             end.date = "20170325")    
+```
+
+We get **1,119** article hits for the query term "drone" which were published between June 1, 2016 and March 25, 2017.
+
+We can only retrieve 10 articles using each call to Article Search API. Set of 10 articles are grouped into a single page with zero indexing system, meaning page 0 contains 1 to 10 articles, page 1 contains 11 to 20 articles, so on and so forth.
+
+We must make several calls to the Article Search API to extract all 1,119 articles in set of ten per page from the NYT. In addition, since each API is limited to 5 calls per second, the subsequent method call is interrupted for 1 second using ` Sys.sleep` call. Function `get.nyt.articles` wrap these multiple calls into perceived one call with 1 sec sleep logic. The function `get.nyt.articles` takes the same arguments as `get.nyt.hits` with one additional argument `pages`. We input `pages = -1` to return all articles with query term "drone" published between June 1, 2016 and March 25, 2017. Since each page contains ten articles, e.g. if we have 99 articles, we only need to get 0 to 9 pages to retrieve all 99 articles.
+
+The function `get.nyt.pages` follows a similar flow as `get.nyt.hits`, except rather than retrieving the "hits" we retrieve the "docs" using `$response$docs` call from the `R list`. `$response$docs` is then passed to `list.select` which extracts `headline`, `snippet`, `lead_paragraph`, `abstract`, and `pub_date` elements. Following, the extracted list is passed to `dfrow.from.list` function which takes a list of `headline`, `snippet`, `lead_paragraph`, `abstract`, and `pub_date`, unlist it, and then binds the rows together into a single data frame for *each article*. When applied over the entire page, we return a single data frame with 10 articles. The data frame for each page is then returned back to the `get.nyt.articles` and combined using the `bind_rows` function to create a single data frame for all the pages and assigned to the object `article.df`. Below function call is the wrapper function with all the above implementation details hidden in this function.
+
+```{r, eval=FALSE}
+article.df <- get.nyt.articles(pages = -1, 
+                              query.string = "drone",
+                              begin.date   = "20160601",
+                              end.date     = "20170325") 
+```
+
+We restrict running above code once for the purpose of this report because of following reasons:
+
+1. Each API is limited to 1K calls per day, and 5 calls per second.
+2. Retrieving article content is a time consuming task.
+3. Article data is past data and is not changing.
+
+Instead, we take the data frame of the articles we just extracted from the NYT API, and save the data frame in an `.RData` file. This allows us to load the data that we have already extracted without making additional calls to the NYT API, affording us efficiency and productivity.
+
+```{r, eval=FALSE}
+save(article.df, file = "drone_article.df.RData")
+```
+
+The function `load` takes the file name of article data set as an input, and loads that article data set into the `R` environment for further analysis.
+
+```{r}
+load(file = "drone_article.df.RData")
+```
+
+### Inspect drone article data set
+
+We look at the dimensions of `article.df` using the `dim` function. The data frame has `r dim(article.df)[1]` rows and `r dim(article.df)[2]` columns. Each row in the `article.df` represents an entire article, and each column represents specific data element of that article.
+
+```{r}
+dim(article.df)
+```
+
+To begin understanding article data set, we first look at a sample of the first five articles. We see a preview of the headline, a snippet of the article content, and the first few lines of the leading paragraph. Based upon our sample, we do not see any unique topics, but we find it useful to preview the data to get a sense of how it is structured. However, looking at the first 5 headlines, we see that there is a variety of news articles in our data frame, with topics ranging from recreational drone usage to drone application in CIA strikes.
+
+```{r}
+num.articles <- nrow(article.df)
+doc.ndx <- 1:5 
+var_df <- article.df[doc.ndx, ]
+kable(var_df, format = "pandoc")
+```
+
+The "drone" article data frame has the following columns as shown below:
+
+```{r}
+names(article.df)
+```
+
+The column names are self-explanatory in terms of the information about articles they represent. As objective of this text mining exercise is to group articles in different categories and discover a distinct topic for each category, we do not consider the publication date column for our analysis.
+
+For most of the articles, abstracts are not available. Out of the `r nrow(article.df)` articles, `r sum(is.na(article.df$abstract))` articles' abstracts are not available (represented by `NA` in *abstract* column). As a result we drop this column from further analysis.
+
+```{r}
+num.articles
+sum(is.na(article.df$abstract))
+```
+
+We investigate random records from *snippet* and *lead_paragraph* columns and observe that information contained in both these columns are identical. As a result, we use only *snippet* for further analysis. 
+
+Below, we select the first five articles from the article data frame to investigate these 5 articles for content similarities between the lead paragraph and snippets.
+
+**Lead paragraph**
+
+```{r}
+article.df$lead_paragraph[doc.ndx]
+```
+
+**Snippet**
+
+```{r}
+article.df$snippet[doc.ndx]
+```
+
+Since snippets capture the essence of an article, we do not consider the *headline* column for our analysis. We retrieve the snippets from the article data frame and store them into a vector, `docs`. Once the snippets are retrieved from `article.df`, we remove all `NA`s and snippets which do not contain at least one alphabetic character. We used `str_detect` function along with a `regexp` pattern. 
+
+```{r}
+docs <- article.df$snippet
+docs <- docs[-c(which(is.na(docs)), which(!str_detect(docs, c("[a-z]"))))]
+```
+
+After primitive cleaning as mentioned above, we use `length` function to check how many articles remain in the article data set for analysis. 
+
+```{r}
+length(docs)
+```
+
+We've removed 6 articles, and still have 1,113 for analysis.
+
+### Clean the snippets
+
+We noticed that the text contains punctuation. Below, we remove punctuation along with other characters that could adversely affect our analysis using the `clean.documents` function. The function takes a text vector as an input, converts the text to lower case, and goes through a series of `regex` replacement expressions that removes apostrophes, dollar signs, numbers, punctuation, and white spaces, and replaces with a single space. In addition, the function trims leading and trailing spaces.
+    
+```{r}
+docs.clean <- clean.documents(docs)
+```
+
+We check the first five articles of the cleaned data set to ensure that all punctuation and other unwanted text have been removed. We see that our `clean.documents` function is effective.
+
+```{r}
+docs.clean[doc.ndx]
+```
+
+### Top terms in snippets
+
+We look at the top 10 terms in the article snippets before taking on detailed text mining tasks. We use `freq_terms` function available in `dqap` package to identify these words. The idea is to identify words which may not have any value to our analysis. `freq_terms` function conveniently allows us to get the term frequencies without actually creating document-term frequency matrix. We pass cleaned snippets to this function, request top 10 words after removing the pre-defined "english" stop words. Once we have the term frequencies, we plot using `ggplot` function to visually represent the results.
+
+
+```{r}
+term_frequencies <- freq_terms(docs.clean, top = 10, at.least = 3, tm::stopwords("english"))
+ggplot(term_frequencies, aes(x = WORD, y = FREQ)) +
+  geom_bar(stat = "identity", col = "tan2", fill = "tan2") +
+  scale_x_discrete(limits = rev(term_frequencies$WORD)) +
+  xlab("Words") +
+  ylab("Frequencies") +
+  coord_flip() 
+```
+
+From the bar plot above, it is evident that the words "said" and "drones(s)" are over-represented and may not add value to our analysis. Since "drone(s)" is our query term we expect this word to have a greater frequency than most. In our analysis we remove these identified words by designating them as "stop words".
+
+## Base investigation
+
+We choose and text-mine the "snippets" of articles to identify distinct clusters and topics across article data set. Following parameters are used for base investigation.
+
+Parameter | Value | Reason
+--------- | ----- | ------
+Query term | "drone" | Interested in application of drones
+Begin date | 1 Jun 2016 | Interested in 2016 articles
+End date   | 25 Mar 2017 | Interested in 2017 articles
+Field      | `snippet` | Best representation of articles
+Stemming   | Yes | Improve "likeness" between documents
+N-grams    | 1 | Consider each word between spaces a single term
+Stopwords  | "english" | Remove english stop words
+Stopwords  | "said", "drone(s)" | These include the search term
+Weighting  | Tf | Weight a document-term matrix by term frequency
+Threshold  | 5 | Filter out least important words
+`k`        |  | To be decided using cluster validation procedure
+
+### Modify the words in snippets using stemming, n-grams, and stopwords
+
+In our first iteration, in an attempt to find meaning within our data set, we use the `modify.words` function to modify the words in the document, stemming the snippets, and removing stop words. 
+
+Stemming identifies the root of a word, and where possible, transforms the word to the root version. For example, the root of happiness is "happy/happi", therefore stemming ensures that most variations of happy/happiness/happier/happiest are transformed to the same root term. 
+
+Stop words are common English words such as "and", "or", "the", and "a". It is useful to remove these stop words so that the main concepts and themes of the articles are more apparent.
+ 
+```{r}
+docs.sns <- 
+  modify.words(
+    docs.clean,  
+    stem.words = TRUE,  
+    ngram.vector = 1, 
+    stop.words =
+      c(stopwords(kind = "english"),
+        "said", "drone", "drones"
+      )
+  )
+```
+
+Now that we have modified the snippets containing in the data frame, we can see the results.
+
+```{r}
+docs.sns[doc.ndx]
+```
+
+As we see, the snippets have been transformed using the `modify.words` function. 
+
+### Create the document matrix
+
+We utilize term frequency as our weighing option. Since we have already stemmed the words, and removed punctuation, we change these parameters to `FALSE`. 
+
+```{r}
+doc.matrix <- 
+  create_matrix(docs.sns, 
+                language = "english",      
+                stemWords = FALSE,         
+                removePunctuation = FALSE, 
+                weighting = tm::weightTf   
+  )
+```
+
+Create the document-term matrix and check the dimension of the matrix. The output of the `doc.matrix` function is an object of class `DocumentTermMatrix`. To convert this object into a matrix of the documents and terms, we use `as.matrix` function and store the result in `dtm`.
+
+```{r}
+dtm <- as.matrix(doc.matrix)
+dim(dtm)
+```
+
+We check the number of words in the document term matrix. There are `r nrow(dtm)` articles and `r ncol(dtm)` words in our matrix.
+
+Many of the words in our matrix are not present in several of the snippets. Continuing our analysis, we keep the words that occur at least 5 times, indicated by the `freq.threshold` parameter. This do not only filter out least important words, but also make our analysis more manageable and improve interpretation.
+ 
+```{r}
+dtm <- reduce.dtm(dtm, freq.threshold = 5)
+ncol(dtm)
+```
+
+We have reduced our word count from 3,869 to 906. 
+
+We start with some basic analysis by looking at the frequency of top 10 words in the article snippets. Calling `colSums` on newly made matrix, aggregates each term used across article snippets. Once we have the `colSums`, we `sort` them with `decreasing = TRUE` option, so we can focus on the most common or top terms.
+
+Lastly, we visualize using bar plot of the top 10 terms of `term_frequency`.
+
+```{r}
+term_frequency <- colSums(dtm)
+term_frequency <- sort(term_frequency, decreasing = TRUE)
+term_frequency[1:10]
+barplot(term_frequency[1:10], col = "tan", las = 2)
+```
+
+It is seen that two top words are "state" and "Kill". We also visualize the the term frequency using word cloud of top 50 words.
+
+```{r}
+word_freqs <- data.frame(term = names(term_frequency), num = term_frequency)
+wordcloud(word_freqs$term, word_freqs$num, max.words = 50, 
+          colors =  brewer.pal(3, "Blues"))
+```
+
+The word cloud above shows the term-frequencies of 50 terms in the article snippets. The size and color of the word is relative to the number of times a word appears in the snippets. Therefore, we can see that the words "state" and "kill" are the most represented in our snippets. Currently, this doesn't give us much information, however, it will be something to note throughout the analysis.
+
+Next, we utilize cluster validation function to find the optimal size of clusters using two methods - `kmeans` and `pam`. The "internal" validation measures Connectivity, Dunn, Silhouette scores. The default maximum number of items which can be clustered are 600. For this report we use all the available observations after the data is cleaned. We evaluate 2 to 8 clusters and choose the one which has optimal scores for further analysis. We store the validation results in the object `intern` and print the summary of measured validations. The output summarizes Connectivity, Dunn, and Silhouette scores both for k-means and PAM methods for each of the cluster sizes.
+
+We look at the optimal scores and plot the results to choose an optimal cluster size for further analysis. We use `optimalScores` method to get an optimal cluster size based on the Connectivity, Dunn, and Silhouette scores. The plot below is a visual representation of the optimal scores.
+
+```{r}
+set.seed(101)
+intern <- clValid(dtm, 2:8, clMethods = c("kmeans", "pam"), 
+                  validation = "internal", maxitems = +Inf)
+summary(intern)
+plot(intern)
+optimalScores(intern)
+```
+
+Optimal clusters are chosen based on lowest connectivity, highest Dunn index, and greatest Silhouette width. Based on these measures optimal cluster size is 2 using `kmeans` method.
+
+We begin our analysis using `kmeans` with two centers.
+
+```{r}
+k <- 2
+set.seed(116)
+cluster = kmeans(dtm, k)$cluster
+```
+
+We evaluate the clusters using `table` to check the cluster sizes. Both the clusters are of decent size. We see one of the clusters is bigger with 870 observations and the other one with 243 observations.
+
+```{r}
+as.data.frame(table(cluster))
+```
+
+We plot clusters using the first 2 principal components. First 2 principal components afford us to reduce the dimensionality of the data making it easier to visually represent and interpret the clusters. This is achievable because we are able to reduce the dimensionality of our data from 900+ dimensions (i.e. the words in the documents) to just two. 
+
+We extract values from first 2 principal components for each article in our data set, create a data frame, and pass on to `ggplot` function. We use `color` aesthetic to represent two distinct clutters identified by `kmeans` method. This allows us to plot a 2-dimensional figure using the values from first 2 principal components.
+
+
+```{R}
+#set.seed(124)
+prcomp <- prcomp(dtm)$x[, 1:2]
+prcomp_df <- as.data.frame(prcomp)
+prcomp_df <- bind_cols(prcomp_df, data.frame("Clusters" = factor(cluster)))
+ggplot(prcomp_df, aes(x = PC1, y = PC2, col = Clusters)) +
+  geom_point(shape = 1, size = 2, position = position_jitter(width = .1), alpha = .6) 
+```
+
+We can see a clear distinction between two clusters in two-dimensional plane. Cluster 2 tends to have lower values of first principal component.
+
+### Evaluate Clusters
+
+Next we evaluate the clusters using `check.cluster` to look at the common words in each cluster. The `check.cluster` function takes a cluster object and a minimum number of observations that a cluster must have to be evaluated and internally passes this information to the `TopWords` function to compute top words in each cluster. The final result is then combined using the `bind_cols` function and returned.
+
+```{r warning=FALSE}
+options(digits = 2)
+check.clusters(cluster, 5) 
+```
+
+We can see that 11% of the snippets in the 870 articles in cluster 1 contain the word "new". “President” is found in 8% of the documents. In cluster two, term "kill" is found in more than 50% of the documents. Additionally, when examining cluster 2 closely, it appears that the sentiments in Cluster 2 broadly are negative, and related to violence, because of the high frequency of the words "kill", "militant", "attack", and "strike".
+
+We evaluate both the clusters subjectively, by looking at the first 5 documents in each cluster.
+
+
+```{R}
+for(i in 1:k) {
+  cat("\n")
+  cat("\n")
+  print(paste("Cluster : ", i))
+  cat("\n")
+  print(head(view.cluster(i), 5))  
+}
+
+```
+
+Cluster 1 predominantly contains articles related to commercial and recreational applications, and community services of drones, Cluster 2 on the other hand is prevailed with articles related to subjects on war, violence, and terrorism.
+
+Finally, we visualize common words in the derived clusters. First, we separate the two clusters, taking the first 50 snippets from each cluster, and store them in different objects. Then we collapse all the snippets from each cluster into one large snippet making a single text vector element. Following, we combine two text elements into a single object of length 2. From there, we clean the snippets, stem the words, and remove stop words. With the cleaned data, we create a term-document matrix, and set the column names for each of the documents to Cluster 1 and Cluster 2 and create a word cloud of common words in both the clusters using `commonality.cloud` function.
+
+```{r warning=FALSE}
+cluster1 <- view.cluster(1)[1:50]
+cluster2 <- view.cluster(2)[1:50]
+all.cluster1 <- paste(cluster1, collapse = " ")
+all.cluster2 <- paste(cluster2, collapse = " ")
+all.cluster <- c(all.cluster1, all.cluster2)
+all.clean <- clean.documents(all.cluster)
+all.sns = 
+  modify.words(
+    all.clean,  
+    stem.words=TRUE,  
+    ngram.vector=1, 
+    stop.words=
+      c(stopwords(kind="english"), "said", "drone", "drones")
+  )
+all.tdm <- TermDocumentMatrix(VCorpus(VectorSource(all.sns)))
+colnames(all.tdm) <- c("Cluster 1", "Cluster 2")
+
+all.matrix <- as.matrix(all.tdm)
+commonality.cloud(all.matrix, colors = brewer.pal(3,"Blues"), max.words = 100, random.order = FALSE)
+```
+
+The most common words between the two clusters are words such as "target", "leader", state", "fire", "say" etc. Next, we visualize distinct words in the derived clusters. We use `comparison.cloud` function to achieve this.
+
+```{r warning=FALSE}
+comparison.cloud(all.matrix, colors =c("darkorange", "darkred") , max.words = 50, random.order = FALSE)
+```
+
+We see clear distinction between two clusters. Cluster 2 with words such as "kill", "attack", and "bomb", etc. represents articles that are related to violence and war. Cluster 1, appears to have words such as "photograph", "video", and "delivery", etc. that indicate usage of drones other than in war, such as commercial or recreational.
+
+We also visualize the difference in frequencies of top 25 common words between these clusters using pyramid plot. To do this, we set up our data by creating a subset containing only the common words between the two clusters, computing the absolute difference between the frequencies of common words between two clusters, and combining the `common_words` data frame and the `difference` vector. Then we order the data frame in descending order of differences, and extract the top 25 words and store them in a data frame.
+
+Finally, we create the pyramid plot using the `pyramid.plot` function. 
+
+```{r message=FALSE}
+common_words <- subset(all.matrix, all.matrix[, 1] > 0 & all.matrix[, 2] > 0)
+difference <- abs(common_words[, 1] - common_words[, 2])
+common_words <- cbind(common_words, difference)
+common_words <- common_words[order(common_words[, 3], decreasing = TRUE), ]
+top25_df <- data.frame(x = common_words[1:25, 1], 
+                       y = common_words[1:25, 2], 
+                       labels = rownames(common_words[1:25, ]))
+py.par <- pyramid.plot(top25_df$x, top25_df$y,
+             labels = top25_df$labels, gap = .8,
+             top.labels = c("Cluster 1", "Words", "Cluster 2"),
+             main = "Words in Common", laxlab = NULL, 
+             raxlab = NULL, unit = NULL)
+```
+
+We can see that, although "attack" is in both the clusters, it is more prevalent in the second cluster. Additionally, we can see that "use" is far more prevalent in the first cluster. These observations support our discovery of distinct topics as discussed previously. 
+
+### Sentiment Analysis
+
+In order to evaluate clusters one step further, we conduct the sentiment analysis on these clusters.
+
+**Emotion**
+
+To begin with, we use the `syzhet` library to conduct the sentiment analysis. This library contains four sentiment dictionaries that separate the emotion into 8 categories (anger, joy, trust, etc.) and 2 sentiments (positive and negative). 
+
+**Data preparation**
+
+We assign two clusters to two different `R` objects. Cluster 1 has `r length(view.cluster(1))` snippets and Cluster 2 has `r length(view.cluster(2))` snippets.
+
+```{r}
+cluster1 <- view.cluster(1)
+cluster2 <- view.cluster(2)
+```
+
+**Sentiment analysis for Cluster 1**
+
+The `get_nrc_sentiment` function implements Saif Mohammad’s NRC emotion lexicon (a large word list) and this function returns a data frame in which each row represents a snippet from the cluster. 
+
+```{r}
+senti1 <- get_nrc_sentiment(cluster1)
+sentiment_cr1_senti <- cbind(cluster1, senti1)
+```
+
+There are `r nrow(sentiment_cr1_senti)` observations in the resulting data frame which is equal to the number of snippets in Cluster 1. 
+
+**Vistualize Emotions**
+
+We check how many words fall into each categories of emotion and visualize the results.
+
+*Emotion*
+
+```{r}
+totalcount_word1 <- data.frame(sentiment_cr1_senti[, c(2:11)])
+
+barplot(
+  sort(colSums(totalcount_word1[, 1:8])), 
+  cex.names = 0.6, 
+  las = 1, 
+  main = "Emotions in Cluster 1"
+)
+
+```
+
+From the data we see that Cluster 1 has most number of `r names(sort(colSums(totalcount_word1[, 1:8]))[8])` words, followed by `r names(sort(colSums(totalcount_word1[, 1:8]))[7])` and `r names(sort(colSums(totalcount_word1[, 1:8]))[6])`. 
+
+*Polarity*
+
+We plot the polarity of Cluster 1. In our case, polarity represents the positive and negative emotions in the articles.
+
+```{r}
+barplot(
+  sort(colSums(totalcount_word1[, 9:10])), 
+  cex.names = 0.7, 
+  las = 1, 
+  main = "Polarity in Cluster 1",  xlab = "Count"
+)
+```
+
+Overall, the Cluster 1 has more `r names(sort(colSums(totalcount_word1[, 9:10]))[2])` words than `r names(sort(colSums(totalcount_word1[, 9:10]))[1])`. 
+
+**Sentiment Analysis For Cluster 2**
+
+We repeat the same process for Cluster 2. 
+
+```{r}
+senti2 <- get_nrc_sentiment(cluster2)
+sentiment_cr2_senti <- cbind(cluster2, senti2)
+```
+
+**Vistualize Emotions**
+
+We check how many words fall into each category of emotion and visualize the results.
+
+*Emotion*
+
+```{r}
+totalcount_word2 <- data.frame(sentiment_cr2_senti[, c(2:11)])
+
+barplot(
+  sort(colSums(totalcount_word2[, 1:8])), 
+  cex.names = 0.6, 
+  las = 1, 
+  main = "Emotions in Cluster 2"
+  )
+```
+
+We see that Cluster 2 has most number of `r names(sort(colSums(totalcount_word2[, 1:8]))[8])` words, followed by `r names(sort(colSums(totalcount_word2[, 1:8]))[7])` and `r names(sort(colSums(totalcount_word2[, 1:8]))[6])`.  
+
+As we have examined before, we can see that fear and anger are largely represented in these articles. This is consistent with our analysis that Cluster 2 appears to have more violence related articles than in Cluster 1.
+
+*Polarity*
+
+```{r}
+barplot(
+  sort(colSums(totalcount_word2[, 9:10])), 
+  cex.names = 0.7, 
+  las = 1, 
+  main = "Polarity in Cluster 2", xlab = "Count"
+  )
+```
+
+Overall, the Cluster 2 has more `r names(sort(colSums(totalcount_word2[, 9:10]))[2])` words than `r names(sort(colSums(totalcount_word2[, 9:10]))[1])`. 
+
+This finding aligns well with our evaluation in the previous sections in which we found that Cluster 2 is predominantly contain war related articles.
+
+## Investigation 2
+
+For our second investigation, we used the same article data and parameters, except now we change the weighting parameter to the inverse-document frequency.
+
+Parameter | Value | Reason
+--------- | ----- | ------
+Query term | "drone" | Interested in application of drones
+Begin date | 1 Jun 2016 | Interested in 2016 articles
+End date   | 25 Mar 2017 | Interested in 2017 articles
+Field      | `snippet` | Best representation of articles
+Stemming   | Yes | Improve "likeness" between documents
+N-grams    | 1 | Consider each word between spaces a single term
+Stopwords  | "english" | Remove english stop words
+Stopwords  |  "said", "drone(s)" | These include the search term
+Weighting  | TfIdf | Weight a term-document matrix by term 
+    -      |   -   | frequency-inverse document frequency
+Threshold  |  | Not applicable
+`k`        |  | To be decided using cluster validation procedure
+
+
+### Modify the words in snippets using stemming, n-grams, and stopwords
+
+In an attempt to find meaning within our data set, we use the `modify.words` function to modify the words in the document, stemming the snippets, and removing stop words. 
+
+```{r}
+docs.sns <- 
+  modify.words(
+    docs.clean,  
+    stem.words = TRUE,  
+    ngram.vector = 1, 
+    stop.words =
+      c(stopwords(kind="english"), "said", "drone", "drones"  
+      )
+  )
+```
+
+Now that we have modified the data frame containing the documents, we can see the results.
+
+```{r}
+docs.sns[1:5]
+```
+
+The snippets have been transformed using the `modify.words` function.
+
+### Create the document matrix
+
+We utilize term frequency-inverse document frequency (`TfIdf`) as our weighing option.
+`TfIdf` measures the uniqueness of a term in the news snippets. For example, if a term shows up only in 10% of the documents then it is unique. If a term shows up in 90% of the documents then it is not all that unique. It indicates the importance of the term that appears in 10% of documents, and places a higher weight on a term that appears multiple times in a specific document but do not appear in many other documents. 
+
+
+```{r}
+doc.matrix <- 
+  create_matrix(docs.sns, 
+                language = "english",     
+                stemWords = FALSE,         
+                removePunctuation = FALSE, 
+                weighting = tm::weightTfIdf 
+  )
+```
+
+We create the document-term matrix and check the dimension of matrix.
+
+```{r}
+dtm <- as.matrix(doc.matrix) 
+dim(dtm)
+```
+
+We check the number of words in the document term matrix. There are `r ncol(dtm)` words.
+
+```{r}
+ncol(dtm)
+```
+
+We normalize the matrix because it improves the clustering using Euclidean distance. The `norm_eucl` function takes matrix as an input and for each document normalize all the words selected from the last step. 
+
+```{r}
+norm_eucl <- function(m) m/apply(m, MARGIN = 1, FUN = function(x) sum(x^2)^.5)
+dtm <- norm_eucl(dtm)
+```
+
+We look at the optimal scores and plot results to choose the optimal cluster size for further analysis. We use `optimalScores` method to get optimal cluster size based on connectivity, Dunn index, and silhouette scores. We use plot to obtain a visual representation of optimal scores. 
+
+```{r}
+set.seed(130)
+intern <- clValid(dtm, 2:8, clMethods = c("kmeans", "pam"), 
+                  validation = "internal", maxitems = +Inf)
+summary(intern)
+plot(intern)
+optimalScores(intern)
+```
+
+Optimal clusters are chosen based on lowest connectivity, highest Dunn index, and greatest silhouette width. Based on connectivity and Dunn index measures optimal cluster size is 2 using `kmeans` and based on silhouette measure optimal cluster size is `r as.integer(as.character(optimalScores(intern)$Clusters[3]))` using `kmeans` method.
+
+First, we do analysis using `kmeans` with two centers based on connectivity and Dunn index measures.
+
+```{r}
+k <- 2
+set.seed(140)
+cluster <- kmeans(dtm, k)$cluster
+```
+
+We evaluate the clusters using `table` to check the cluster sizes. Cluster 1 has 1,007 observations and Cluster 2 has only 106.
+
+```{r}
+as.data.frame(table(cluster))
+```
+
+We plot clusters using the first 2 principal components.
+
+```{R}
+set.seed(150)
+prcomp <- prcomp(dtm)$x[, 1:2]
+prcomp_df <- as.data.frame(prcomp)
+prcomp_df <- bind_cols(prcomp_df, data.frame("Clusters" = factor(cluster)))
+ggplot(prcomp_df, aes(x = PC1, y = PC2, col = Clusters)) +
+  geom_point(shape = 1, size = 2, position = position_jitter(width = .1), alpha = .8) 
+```
+
+It appears that our clusters are more sensitive to the values in principal component 2 than principal component 1. Additionally, examining our plot above, we can see that most data points are clustered in a high-density area centered around (0, 0). Cluster 1 has many more observation and there is no clear distinction between two clusters because of overlapping between two clusters.
+
+### Evaluate Clusters
+
+Next we evaluate the clusters using `check.cluster` to look at the common words in each cluster. Again, the second parameter is the minimum number of rows that a cluster must have to be displayed.
+
+```{r warning=FALSE}
+options(digits = 2)
+check.clusters(cluster,5) 
+```
+
+Finally, subjectively evaluate the clusters by looking at the documents in the clusters. We see Cluster 1 is predominantly have articles related to commercial and recreational usage of drones. On the other hand Cluster 2 is dominated with news articles related to war and terrorism.
+
+```{R}
+for(i in 1:k) {
+  cat("\n")
+  cat("\n")
+  print(paste("Cluster : ", i))
+  cat("\n")
+  print(head(view.cluster(i), 5))  
+}
+```
+
+Next, we do analysis using `kmeans` with `r as.integer(as.character(optimalScores(intern)$Clusters[3]))` centers. Recall, when we checked the optimal scores of the data, the Dunn index and connectivity suggested that we use 2 centers. However, the silhouette value indicated that we use `r as.integer(as.character(optimalScores(intern)$Clusters[3]))` centers.
+
+```{r}
+k <- as.integer(as.character(optimalScores(intern)$Clusters[3]))
+set.seed(160)
+cluster <- kmeans(dtm, k)$cluster
+```
+
+We evaluate the clusters using `table` to check the cluster sizes. Largest cluster is with 634 articles, followed by cluster with 224 articles. Other clusters are comparatively smaller in size.
+
+```{r}
+as.data.frame(table(cluster))
+```
+
+We plot clusters using the first 2 principal components.
+
+```{R}
+set.seed(180)
+prcomp <- prcomp(dtm)$x[, 1:2]
+prcomp_df <- as.data.frame(prcomp)
+prcomp_df <- bind_cols(prcomp_df, data.frame("Clusters" = factor(cluster)))
+ggplot(prcomp_df, aes(x = PC1, y = PC2, col = Clusters)) +
+  geom_point(shape = 1, size = 2, position = position_jitter(width = .1), alpha = .8) 
+```
+
+We have better clusters above, however, the visual interpretation is still not very crisp with lot of overlapping.
+
+Next we evaluate the clusters using `check.cluster` to look at the common words in each cluster.The second parameter is the minimum number of rows that a cluster must have to be displayed.
+
+```{r warning=FALSE}
+options(digits = 2)
+kable(check.clusters(cluster,5) , format = "pandoc")
+```
+
+Finally, subjectively evaluate the clusters by looking at first 3 documents in each of `r as.integer(as.character(optimalScores(intern)$Clusters[3]))` clusters.
+
+```{R}
+for(i in 1:k) {
+  cat("\n")
+  cat("\n")
+  print(paste("Cluster : ", i))
+  cat("\n")
+  print(head(view.cluster(i), 3))  
+}
+```
+
+* If we look at Cluster 4, we see that the snippets of all the articles are same indicating that these article snippets appear to be part of daily briefing category with actual news not captured in these snippets. 
+* Cluster 1 and 5 captures the commercial and recreational use of drones.
+* Cluster 6 captures news related to China.
+* All other clusters capture news articles related to war and terrorism.
+
+In summary, the derived clusters are not very useful to discover distinct topics. Henceforth, we move to our next investigation.
+
+## Investigation 3
+
+For investigation 3, we used the same article data and parameters, except now we change the weighting parameter back to term frequency and we also increase our N-grams to 2. Additionally, we adjust our threshold to 3.
+
+Parameter | Value | Reason
+--------- | ----- | ------
+Query term | "drone" | Interested in application of drones
+Begin date | 1 Jun 2016 | Interested in 2016 articles
+End date   | 25 Mar 2017 | Interested in 2017 articles
+Field      | `snippet` | Best representation of articles
+Stemming   | No | To increase specificity of word selection
+N-grams    | 2 | Consider each adjacent word combination as single term
+Stopwords  | "english" | Remove english stop words
+Stopwords  |  "said", "drone(s)"" | These include the search term.
+Weighting  | Tf | Weight a document-term matrix by term frequency
+Threshold  |  3 | To filter out least important words
+`k`        |  | To be decided using cluster validation procedure
+
+
+### Modify the words in snippets using stemming, n-grams and stopwords
+
+In this iteration we again use the `modify.words` function to modify the words in the document using the stemming, n-grams, and removing stop words. We set n-grams equal to 1, but later in the process use `NGramTokenizer` to transform terms into 2-grams. 
+
+```{r}
+docs.sns <- 
+  modify.words(
+    docs.clean,  
+    stem.words = FALSE,  
+    ngram.vector = 1, 
+    stop.words =
+      c(stopwords(kind="english"), "said", "drone", "drones"  
+      )
+  )
+```
+
+Now that we have modified the data frame containing the documents, we can see the results.
+
+```{r}
+docs.sns[1:5]
+```
+
+The snippets have been transformed using the `modify.words` function.
+
+### Create the document matrix
+
+We create n-gram tokenizer using `Weka` package. Since we consider only 2-grams in the resulting terms, we set both `min` and `max` to 2 in `Weka_control` of `NGramTokenizer`. Once tokenizer is created we pass the tokenizer to `control` of `DocumentTermMatrix` function of `tm` library to create Document-Term frequencies. To use this function we create `VCorpus` from `VectorSource` which take character vector `docs.sns` as an input. We utilize term frequency as our weighing option.
+
+```{r}
+tokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+doc.matrix <- DocumentTermMatrix(VCorpus(VectorSource(docs.sns)), 
+                                 control = list(tokenizer = tokenizer, 
+                                                weighting = weightTf))
+```
+
+We create the document-term matrix and check the dimension of matrix.
+
+```{r}
+dtm <- as.matrix(doc.matrix) 
+dim(dtm)
+```
+
+We check the number of words in the document term matrix. There are `r ncol(dtm)` words.
+
+```{r}
+colCount <- ncol(dtm)
+colCount
+```
+
+We noted that we have `r ncol(dtm)` in our matrix. Many of the words are not present in several of the snippets. For our further analysis, we keep the words that occurs at least 3 times indicated by `freq.threshold` parameter. This will not only filter out least important words, but also make our analysis manageable.
+
+ 
+```{r}
+dtm <- reduce.dtm(dtm, freq.threshold = 3)
+```
+
+Check the number of columns/words remaining in the document-term matrix. We saw that we reduced our word count from `r colCount` to `r ncol(dtm)`. 
+
+```{r}
+ncol(dtm)
+```
+
+We start with some basic analysis by looking at the frequency of top 10 words in the article snippets. Calling `colSums` on newly made matrix, aggregates each term (2-grams) used across article snippets. Once we have the `colSums`, we `sort` them with `decreasing = TRUE` option, so we can focus on the most common or top terms.
+
+Lastly, we visualize using bar plot of the top 10 terms of `term_frequency`.
+
+```{r}
+term_frequency <- colSums(dtm)
+term_frequency <- sort(term_frequency, decreasing = TRUE)
+term_frequency[1:10]
+bp <- barplot(term_frequency[1:10], col = "tan", las = 2, axisnames = F, axes = F)
+text(bp, par("usr")[3], labels = names(term_frequency[1:10]), srt = 45, adj = c(1.1,1.1), xpd = TRUE, cex=.9)
+axis(2)
+```
+
+We notice that we are utilizing 2-grams and that the most popular words are combinations of two words. As we can see from our plot above, the top three words are "islamic state", "united states", and "donald trump". This enhances are understanding of the "base investigation" in which the top words in Cluster 2 were "islam", "state" and "group". It appears that these articles are geared towards geopolitical issues that are prevalent at our time.
+
+Again, we visualize the the term frequency using word cloud of top 25 words.
+
+```{r}
+word_freqs <- data.frame(term = names(term_frequency), num = term_frequency)
+wordcloud(word_freqs$term, word_freqs$num, max.words = 25, 
+          colors =  brewer.pal(3, "Blues"))
+```
+
+We look at the optimal scores and plot results to choose optimal cluster size for further analysis. Use `optimalScores` method to get optimal cluster size based on Connectivity, Dunn, and Silhouette scores. We also use the plots to obtain a visual representation of optimal scores. 
+
+```{r}
+set.seed(200)
+intern <- clValid(dtm, 2:8, clMethods = c("kmeans", "pam"), 
+                  validation = "internal", maxitems = +Inf)
+summary(intern)
+plot(intern)
+optimalScores(intern)
+```
+
+Optimal clusters are chosen based on lowest connectivity, highest Dunn index, and greatest silhouette width. Based on connectivity measure optimal cluster size is 2 using `pam` method and based on Dunn index and silhouette measures optimal cluster sizes are `r as.integer(as.character(optimalScores(intern)$Clusters[2]))` and `r as.integer(as.character(optimalScores(intern)$Clusters[3]))` respectively using `kmeans` method.
+
+We do analysis using `kmeans` with four centers based on silhouette measures.
+
+```{r}
+k <- 4
+set.seed(210)
+cluster <- kmeans(dtm, k)$cluster
+```
+
+We evaluate the clusters using `table` to check the cluster sizes. The cluster with 927 observations dominates the grouping with other small clusters.
+
+```{r}
+as.data.frame(table(cluster))
+```
+
+We plot clusters using the first 2 principal components.
+
+```{R}
+set.seed(220)
+prcomp <- prcomp(dtm)$x[, 1:2]
+prcomp_df <- as.data.frame(prcomp)
+prcomp_df <- bind_cols(prcomp_df, data.frame("Clusters" = factor(cluster)))
+ggplot(prcomp_df, aes(x = PC1, y = PC2, col = Clusters)) +
+  geom_point(shape = 1, size = 2, position = position_jitter(width = .1), alpha = .8) 
+```
+
+We are able to see some good separation between some of our clusters on this plot. However, there is a mix of clusters in the lower right hand region of the plot.
+
+### Evaluate Clusters
+
+Next we evaluate the clusters using `check.cluster` to look at the common words in each cluster.The second parameter is the minimum number of rows that a cluster must have to be displayed.
+
+```{r warning=FALSE}
+options(digits = 2)
+kable(check.clusters(cluster,5), format = "pandoc")
+```
+
+Finally, subjectively evaluate the clusters by looking at the documents in the clusters.
+
+```{R}
+for(i in 1:k) {
+  cat("\n")
+  cat("\n")
+  print(paste("Cluster : ", i))
+  cat("\n")
+  print(head(view.cluster(i), 5))  
+}
+```
+
+We see from our assessment that Cluster 1 seems to have articles with mention of drones in conjunction with US and China. Cluster 4 news articles are mostly about the Islamic State and Cluster 2 news articles about Al Qaeda. Clusters 2 and 4 have news articles more on the use of drones in the context of war and terrorism. Clusters 3 is a predominantly about commercial and recreational use of drones.
+
+## Conclusion
+
+By using text mining techniques, we are able to objectively and efficiently sort through over 1,000 article snippets and extract insights out of them without actually having to read them all. By removing the punctuation, numbers, stop words, and most commonly used words, such as "said" and "drone(s)", and by utilizing stemming, we are able to create clusters around topics that were unique. Throughout the different investigations, we continually saw clusters emerged on two border topics:
+
+1.  Use of drones in context of war against terrorism.
+2.  Use of drones in commercial, recreational, and community services such as use by fire fighters in New York
+
+Comparing base investigation with investigation 2, base investigation afforded more balance clusters and clear distinction between two clusters - one in context of military use and other in commercial and recreational use. On the other hand, investigation 3 with 2-grams has its unique advantages. For investigation 3, the broader themes discovered are still the same as for base investigation but we observed a hierarchy within these broader themes. For example, we found two separate clusters within war against terrorism theme – each cluster covering the news related to Islamic State and Al Qaeda – two different terrorist organizations. In addition, we also found a distinct cluster with mention of drone in conjunction with the latest US and China rift in China Sea.
+
+To extend this analysis to practical and more useful purposes, the next step is to create an automatic tagging system with an ability to tag the articles in each cluster based on the discovered topic. The tagging system would help reader to discover the similar articles efficiently. In addition, based on this cluster analysis, we could build a recommendation system with an ability to suggest an article to reader based on his or her recent interest in a topic.
+
+## References
+
+1. https://en.wikipedia.org/wiki/The_New_York_Times
+2. http://developer.nytimes.com/article_search_v2.json#/Documentation/GET/articlesearch.json
+3. http://michael.hahsler.net/SMU/CSE7337/install/tm.R

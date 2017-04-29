@@ -1,0 +1,6 @@
+"0","barplot("
+"0","  sort(colSums(totalcount_word2[, 9:10])), "
+"0","  cex.names = 0.7, "
+"0","  las = 1, "
+"0","  main = ""Polarity in Cluster 2"", xlab = ""Count"""
+"0","  )"

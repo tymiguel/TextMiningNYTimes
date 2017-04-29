@@ -1,0 +1,2 @@
+"0","norm_eucl <- function(m) m/apply(m, MARGIN = 1, FUN = function(x) sum(x^2)^.5)"
+"0","dtm <- norm_eucl(dtm)"

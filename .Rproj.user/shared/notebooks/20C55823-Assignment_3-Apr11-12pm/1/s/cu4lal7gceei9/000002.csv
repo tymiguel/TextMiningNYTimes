@@ -1,0 +1,2 @@
+"0","docs <- article.df$snippet"
+"0","docs <- docs[-c(which(is.na(docs)), which(!str_detect(docs, c(""[a-z]""))))]"

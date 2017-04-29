@@ -1,0 +1,2 @@
+"0","senti2 <- get_nrc_sentiment(cluster2)"
+"0","sentiment_cr2_senti <- cbind(cluster2, senti2)"

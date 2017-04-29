@@ -1,0 +1,21 @@
+"0","library(stringr) "
+"0","library(knitr)"
+"0","library(dplyr)"
+"0","library(ggplot2)"
+"0","library(plotrix)"
+"0","library(clValid)"
+"0","library(tm)"
+"0","library(RTextTools)"
+"0","library(wordcloud)"
+"0","library(RColorBrewer)"
+"0","library(syuzhet)"
+"0","library(qdap)"
+"2","Error : .onLoad failed in loadNamespace() for 'rJava', details:
+  call: dyn.load(file, DLLpath = DLLpath, ...)
+  error: unable to load shared object '/Library/Frameworks/R.framework/Versions/3.3/Resources/library/rJava/libs/rJava.so':
+  dlopen(/Library/Frameworks/R.framework/Versions/3.3/Resources/library/rJava/libs/rJava.so, 6): Library not loaded: @rpath/libjvm.dylib
+  Referenced from: /Library/Frameworks/R.framework/Versions/3.3/Resources/library/rJava/libs/rJava.so
+  Reason: image not found
+"
+"2","Error: package or namespace load failed for ‘qdap’
+"

@@ -1,0 +1,7 @@
+"0","doc.matrix <- "
+"0","  create_matrix(docs.sns, "
+"0","                language = ""english"",      # Do not change"
+"0","                stemWords = FALSE,         # Do not change"
+"0","                removePunctuation = FALSE, # Do not change"
+"0","                weighting=tm::weightTfIdf   # OPTION: weighting (see below)"
+"0","  )"

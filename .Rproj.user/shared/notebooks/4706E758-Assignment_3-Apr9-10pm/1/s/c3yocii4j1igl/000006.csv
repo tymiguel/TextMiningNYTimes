@@ -1,0 +1,4 @@
+"0","num.articles <- nrow(article.df)"
+"0","doc.ndx <- 1:5 "
+"0","var_df <- article.df[doc.ndx, ]"
+"0","kable(var_df, format = ""pandoc"")"

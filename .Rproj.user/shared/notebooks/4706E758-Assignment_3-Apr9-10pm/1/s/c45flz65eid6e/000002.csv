@@ -1,0 +1,3 @@
+"0","k <- as.integer(as.character(optimalScores(intern)$Clusters[3]))"
+"0","set.seed(160)"
+"0","cluster <- kmeans(dtm, k)$cluster"
