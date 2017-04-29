@@ -7,5 +7,6 @@ The Times exposes APIs (application programming interfaces) for noncommercial us
 In this report, we leverage The Times Article Search API to search and retrieve news articles based on a unique query term to showcase nuances of text mining techniques in conjunction with R programming language for data scientists. Specifically, we categorize the retrieved article content into distinct clusters to discover the underlying topics per cluster. For the purpose of this report, we focus our analysis to articles containing the word "drone" and published between June 1, 2016 and March 25, 2017.
 
 
-To view the final RMD version take a look at *Assignment 3.Rmd*
-To view the HTML of the final version *Assignment 3.html*
+To view the final RMD version take a look at _Assignment 3.Rmd_
+
+To view the HTML of the final version _Assignment 3.html_
